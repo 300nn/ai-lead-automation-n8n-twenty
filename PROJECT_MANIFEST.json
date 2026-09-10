@@ -1,0 +1,29 @@
+{
+  "project": "AI Lead Automation — n8n + Twenty CRM",
+  "validated_stack": {
+    "n8n": "2.33.5",
+    "twenty": "v2.37.5",
+    "mailpit": "v1.31.1",
+    "postgres": "16"
+  },
+  "regression": {
+    "pass": 11,
+    "fail": 0,
+    "skip": 0
+  },
+  "default_mode": {
+    "mockAI": true,
+    "mockCRM": false,
+    "mockEmail": false,
+    "mockNotification": false
+  },
+  "workflows": [
+    "00_setup_data_tables.json",
+    "01_twenty_connectivity_check.json",
+    "02_ai_lead_qualification.json",
+    "03_calendly_booking_handler.json",
+    "04_global_error_handler.json",
+    "05_portfolio_demo_form.json"
+  ],
+  "sanitized": true
+}

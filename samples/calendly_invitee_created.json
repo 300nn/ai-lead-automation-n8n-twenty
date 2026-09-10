@@ -1,0 +1,10 @@
+{
+  "event": "invitee.created",
+  "payload": {
+    "email": "john@acme.example",
+    "name": "John Smith",
+    "event": {
+      "start_time": "2026-09-15T10:00:00Z"
+    }
+  }
+}

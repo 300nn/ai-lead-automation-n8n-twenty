@@ -1,0 +1,13 @@
+{
+  "request_id": "demo-hot-001",
+  "name": "John Smith",
+  "email": "john@acme.example",
+  "phone": "+49123456789",
+  "company": "Acme GmbH",
+  "company_size": 80,
+  "website": "https://acme.example",
+  "budget": 12000,
+  "service": "CRM Automation",
+  "message": "We need to automate lead routing, CRM updates and follow-up before next month.",
+  "source": "Website"
+}
