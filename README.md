@@ -1,5 +1,7 @@
 # AI Lead Automation — n8n + Twenty CRM
 
+[![Validate portfolio repository](https://github.com/300nn/ai-lead-automation-n8n-twenty/actions/workflows/validate.yml/badge.svg)](https://github.com/300nn/ai-lead-automation-n8n-twenty/actions/workflows/validate.yml)
+
 A production-like lead intake and qualification pipeline built with **n8n**, **Twenty CRM**, **Mailpit**, and an optional **OpenAI** qualification branch.
 
 The local demo runs with AI inference mocked by default, so it is deterministic and does **not require paid OpenAI API usage**. The real OpenAI branch is already wired and can be enabled by configuration when desired.
@@ -68,6 +70,8 @@ The regression suite passed **11/11 scenarios** in the local Twenty/Mailpit envi
 | Mailpit delivery | PASS |
 
 See [`tests/REGRESSION_RESULTS.md`](tests/REGRESSION_RESULTS.md) for the captured result and [`tests/run-all-tests.ps1`](tests/run-all-tests.ps1) for the executable regression suite.
+
+Repository-level CI also validates JSON syntax, manifest consistency, the recorded 11/11 regression summary, and basic public-secret hygiene on every push and pull request. See [`scripts/validate_repo.py`](scripts/validate_repo.py) and [`.github/workflows/validate.yml`](.github/workflows/validate.yml).
 
 ## Reliability features
 
