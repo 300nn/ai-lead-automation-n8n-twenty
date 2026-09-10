@@ -1,0 +1,894 @@
+[
+  {
+    "name": "03 | AI Lead Automation | Calendly Booking Handler",
+    "nodes": [
+      {
+        "id": "2f4e4c40-c80a-4e83-b2e3-dfc77147e1b1",
+        "name": "README",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          0,
+          -420
+        ],
+        "parameters": {
+          "content": "# 03 — Calendly → Twenty Opportunity\\nReceives invitee.created, finds the persisted lead by email, and updates its Twenty opportunity. The workflow introspects OpportunityStageEnum first instead of hard-coding a stage.",
+          "width": 650,
+          "height": 260
+        }
+      },
+      {
+        "id": "3638f7ba-503b-4045-83fb-2c0d8876f78a",
+        "name": "Calendly Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "portfolio/calendly",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "7e1fe624-55d7-4f8b-9617-d089894415bd"
+      },
+      {
+        "id": "823d6f8e-fb46-4f02-842f-5c037c89e8f1",
+        "name": "Normalize Calendly Event",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          260,
+          0
+        ],
+        "parameters": {
+          "jsCode": "\nconst b=$json.body??$json;\nconst eventType=String(b.event||b.type||'').trim();\nconst p=b.payload??{};\nconst email=String(p.email||p.invitee?.email||p.contact?.email||'').trim().toLowerCase();\nconst name=String(p.name||p.invitee?.name||p.contact?.name||'').trim();\nconst start_time=p.event?.start_time||p.scheduled_event?.start_time||p.start_time||'';\nconst CONFIG={mockCRM:false,twentyBaseUrl:'http://twenty:3000'};\nconst is_booking=eventType==='invitee.created';\nconst valid=is_booking && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\nreturn [{json:{event_type:eventType,is_booking,valid,email,name,start_time,received_at:new Date().toISOString(),config:CONFIG,raw:b}}];\n"
+        }
+      },
+      {
+        "id": "548b6a18-722d-40cf-80f5-7ed65e2d80e1",
+        "name": "Valid Booking Event?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          520,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "fa6d4c60-4d6e-42b1-b8c0-48703b519f06",
+                "leftValue": "={{ $json.valid }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "ed27557d-130d-4a87-b8d5-57f5aa7ce29c",
+        "name": "Build Ignored Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          780,
+          220
+        ],
+        "parameters": {
+          "jsCode": "const code=$json.is_booking?422:200; return [{json:{http_code:code,body:{status:$json.is_booking?'invalid_booking_event':'ignored',event:$json.event_type,email:$json.email||null}}}];"
+        }
+      },
+      {
+        "id": "3bb0fce1-9e12-4ccc-afab-89ea5c8de137",
+        "name": "Respond Ignored",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1040,
+          220
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "b4d53c8c-ac05-4b79-bac7-0c3e2d5fc8ea",
+        "name": "Find Lead by Email",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          780,
+          -80
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_state",
+            "mode": "name"
+          },
+          "limit": 1,
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "email",
+                "condition": "eq",
+                "keyValue": "={{ $json.email }}"
+              }
+            ]
+          }
+        },
+        "alwaysOutputData": true
+      },
+      {
+        "id": "d9c73289-fa08-4535-a296-ee63e615672b",
+        "name": "Booking Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1040,
+          -80
+        ],
+        "parameters": {
+          "jsCode": "\nconst evt=$('Normalize Calendly Event').first().json;\nconst row=$json&&$json.request_id?$json:null;\nreturn [{json:{...evt,lead_found:Boolean(row),request_id:row?.request_id||'',deal_id:row?.deal_id||'',contact_id:row?.contact_id||'',lead_status:row?.status||''}}];\n"
+        }
+      },
+      {
+        "id": "c3ab7776-65c6-4cf3-be2e-51d1e738cf26",
+        "name": "Deal Available?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1300,
+          -80
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "f4593a1d-0984-4369-aed1-2e4a2cd4cb13",
+                "leftValue": "={{ Boolean($json.lead_found && $json.deal_id) }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "b4424cce-93f7-4b08-94e7-40d97619f003",
+        "name": "Build No Deal Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1560,
+          180
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{http_code:202,body:{status:'accepted_no_deal',email:$json.email,request_id:$json.request_id||null}}}];"
+        }
+      },
+      {
+        "id": "606f437c-fcb0-49a6-9090-90d5377aeddd",
+        "name": "Respond No Deal",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1820,
+          180
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "8bd804e6-5da3-4dcf-bc30-a92b6fd62bc6",
+        "name": "Use Mock CRM?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1560,
+          -120
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "c1f175aa-54f6-4556-9767-00922e8fdc4f",
+                "leftValue": "={{ $json.config.mockCRM }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "3043ab40-0e2b-49b7-9373-9425d4aa1ff9",
+        "name": "Mock Deal Stage Update",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1820,
+          -240
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{...$json,deal_update_ok:true,deal_update_status:'mock_updated'}}];"
+        }
+      },
+      {
+        "id": "808449c5-282a-461c-9ecb-6906672a58b0",
+        "name": "Twenty Update Opportunity Stage",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          2336,
+          384
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ $json.config.twentyBaseUrl + '/rest/opportunities/' + $json.deal_id }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ {stage:$json.selected_stage} }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "c4b61e67-404c-4ee5-a26f-891a1e8c14de",
+        "name": "Normalize Deal Stage Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          -120
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Booking Context').first().json;\nif($json.deal_update_ok)return [{json:$json}];\nif($json.stage_discovery_ok===false)return [{json:{...base,deal_update_ok:false,deal_update_status:'failed',deal_update_error:$json.deal_update_error||'stage discovery failed'}}];\nconst err=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nconst id=$json.id||$json.data?.id||$json.data?.opportunity?.id||$json.data?.updateOpportunity?.id||'';\nconst raw=(()=>{try{return JSON.stringify($json).slice(0,1200)}catch{return '[unserializable response]'}})();\nreturn [{json:{...base,deal_update_ok:!err&&Boolean(id),deal_update_status:err?'failed':'updated',deal_update_error:err||(!id?('missing opportunity id in response; response='+raw):''),selected_stage:$('Choose Booking Stage').first().json.selected_stage||''}}];\n"
+        }
+      },
+      {
+        "id": "4746b51b-1221-4125-897e-9c420636c8c9",
+        "name": "Deal Stage Updated?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2340,
+          -120
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "dbc28171-6545-43b5-bf5c-36452b4fe6df",
+                "leftValue": "={{ $json.deal_update_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "225e261c-474a-46a8-9ea5-c953c20b540a",
+        "name": "Audit Booking",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          2600,
+          -220
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_audit",
+            "mode": "name"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "timestamp": "={{ $now.toISO() }}",
+              "request_id": "={{ $json.request_id }}",
+              "stage": "calendly_booking",
+              "status": "meeting_scheduled",
+              "detail": "={{ `deal=${$json.deal_id}; start=${$json.start_time || \"unknown\"}; mode=${$json.deal_update_status}` }}",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "timestamp",
+                "displayName": "timestamp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "stage",
+                "displayName": "stage",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "detail",
+                "displayName": "detail",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "32aeb7ef-a7a9-4e21-a701-b1b097c44904",
+        "name": "Build Booking Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2600,
+          -60
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{http_code:200,body:{status:'meeting_scheduled',request_id:$json.request_id,deal_id:$json.deal_id,start_time:$json.start_time||null,mode:$json.deal_update_status}}}];"
+        }
+      },
+      {
+        "id": "0a9f9456-1901-4a7d-86cb-fb171af20583",
+        "name": "Respond Booking",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          2860,
+          -60
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "1ef4b6a9-49ed-4da5-9247-dbdcc44f0e16",
+        "name": "Build Booking Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2600,
+          180
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{http_code:502,body:{status:'failed',request_id:$json.request_id,deal_id:$json.deal_id,error:$json.deal_update_error||'Deal stage update failed'}}}];"
+        }
+      },
+      {
+        "id": "d6a60c35-af6c-4169-bb77-b94315e3dec5",
+        "name": "Audit Booking Failure",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          2860,
+          300
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_audit",
+            "mode": "name"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "timestamp": "={{ $now.toISO() }}",
+              "request_id": "={{ $(\"Normalize Deal Stage Result\").first().json.request_id }}",
+              "stage": "calendly_booking",
+              "status": "failed",
+              "detail": "={{ $(\"Normalize Deal Stage Result\").first().json.deal_update_error || \"Deal stage update failed\" }}",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "timestamp",
+                "displayName": "timestamp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "stage",
+                "displayName": "stage",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "detail",
+                "displayName": "detail",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "49ac028b-4a75-48bc-a702-f482b7a15929",
+        "name": "Respond Booking Failure",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          2860,
+          180
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "89ac88d8-bb34-4e77-97be-f2f8a9240af0",
+        "name": "Twenty Introspect Opportunity Stages",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          1824,
+          384
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.config.twentyBaseUrl + \"/graphql\" }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { query: 'query OpportunityStages { __type(name: \"OpportunityStageEnum\") { enumValues { name } } }' } }}"
+        },
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "1c56e33c-9321-4d6f-a929-9915a399773f",
+        "name": "Choose Booking Stage",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          384
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Booking Context').first().json;\nconst httpErr=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nconst gqlErr=Array.isArray($json.errors)&&$json.errors.length?JSON.stringify($json.errors):'';\nif(httpErr||gqlErr) return [{json:{...base,stage_discovery_ok:false,deal_update_error:httpErr||gqlErr}}];\nconst values=($json.data?.__type?.enumValues||[]).map(x=>x.name).filter(Boolean);\nif(!values.length) return [{json:{...base,stage_discovery_ok:false,deal_update_error:'OpportunityStageEnum returned no values'}}];\nconst preferred=['MEETING','CONNECTED','TECHNICAL_EVALUATION','SCREENING','PROPOSAL','COMMITTED'];\nlet stage=preferred.find(x=>values.includes(x));\nif(!stage) stage=values.find(x=>!['WON','LOST','CUSTOMER'].includes(x)) || values[0];\nreturn [{json:{...base,stage_discovery_ok:true,selected_stage:stage,available_stages:values}}];\n"
+        }
+      }
+    ],
+    "connections": {
+      "Calendly Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize Calendly Event",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Calendly Event": {
+        "main": [
+          [
+            {
+              "node": "Valid Booking Event?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Valid Booking Event?": {
+        "main": [
+          [
+            {
+              "node": "Find Lead by Email",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Ignored Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Ignored Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Ignored",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Find Lead by Email": {
+        "main": [
+          [
+            {
+              "node": "Booking Context",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Booking Context": {
+        "main": [
+          [
+            {
+              "node": "Deal Available?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Deal Available?": {
+        "main": [
+          [
+            {
+              "node": "Use Mock CRM?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build No Deal Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build No Deal Response": {
+        "main": [
+          [
+            {
+              "node": "Respond No Deal",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Use Mock CRM?": {
+        "main": [
+          [
+            {
+              "node": "Mock Deal Stage Update",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Twenty Introspect Opportunity Stages",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mock Deal Stage Update": {
+        "main": [
+          [
+            {
+              "node": "Normalize Deal Stage Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Deal Stage Result": {
+        "main": [
+          [
+            {
+              "node": "Deal Stage Updated?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Deal Stage Updated?": {
+        "main": [
+          [
+            {
+              "node": "Audit Booking",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Build Booking Response",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Booking Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Booking Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Booking",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Booking Failure": {
+        "main": [
+          [
+            {
+              "node": "Audit Booking Failure",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Respond Booking Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Update Opportunity Stage": {
+        "main": [
+          [
+            {
+              "node": "Normalize Deal Stage Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Introspect Opportunity Stages": {
+        "main": [
+          [
+            {
+              "node": "Choose Booking Stage",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Choose Booking Stage": {
+        "main": [
+          [
+            {
+              "node": "Twenty Update Opportunity Stage",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "settings": {
+      "executionOrder": "v1",
+      "saveManualExecutions": true,
+      "saveExecutionProgress": true,
+      "saveDataErrorExecution": "all",
+      "saveDataSuccessExecution": "all"
+    },
+    "active": false,
+    "meta": {
+      "templateCredsSetupCompleted": false
+    }
+  }
+]

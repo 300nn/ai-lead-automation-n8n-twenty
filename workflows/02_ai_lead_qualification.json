@@ -1,0 +1,2745 @@
+[
+  {
+    "name": "02 | AI Lead Qualification & CRM Automation | Production-like",
+    "nodes": [
+      {
+        "id": "05225212-7ccb-4990-a49c-77c214803810",
+        "name": "Architecture",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          0,
+          -520
+        ],
+        "parameters": {
+          "content": "# 02 - AI Lead Qualification + Twenty CRM\\nProduction-like local stack: n8n -> Twenty CRM -> Mailpit.\\n\\nTwenty Person and Opportunity records include portfolio CRM fields: Lead Score, Lead Category, Service, Source, AI Summary and Request ID; Person also stores Budget and Company Size.\\n\\nIndependent switches: mockAI=true, mockCRM=false, mockEmail=false, mockNotification=false.",
+          "width": 760,
+          "height": 310
+        }
+      },
+      {
+        "id": "f49c9bc8-5ac0-462c-9d6d-043ff1d634a4",
+        "name": "Lead Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "portfolio/lead",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "webhookId": "2d16f845-bae8-4640-8221-f91038d08fd3"
+      },
+      {
+        "id": "c791f475-bcef-420e-9f3a-7fc7aed413f7",
+        "name": "Normalize + Config",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          260,
+          0
+        ],
+        "parameters": {
+          "jsCode": "\nconst raw = $json.body ?? $json;\nconst headers = $json.headers ?? {};\nconst clean = (v, max=1000) => String(v ?? '').trim().slice(0,max);\nconst email = clean(raw.email,320).toLowerCase();\nconst name = clean(raw.name,200);\nconst phone = clean(raw.phone,80).replace(/[^+\\d]/g,'');\nconst company = clean(raw.company,240);\nconst website = clean(raw.website,500);\nconst service = clean(raw.service,240);\nconst message = clean(raw.message,4000);\nconst source = clean(raw.source || 'Website',120);\nconst budgetNum = Number(raw.budget ?? 0);\nconst companySizeNum = Number(raw.company_size ?? 0);\nconst budget = Number.isFinite(budgetNum) && budgetNum >= 0 ? budgetNum : 0;\nconst company_size = Number.isFinite(companySizeNum) && companySizeNum >= 0 ? Math.round(companySizeNum) : 0;\nconst errors=[];\nif (!name) errors.push('name is required');\nif (!email) errors.push('email is required');\nif (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) errors.push('email format is invalid');\nif (!service) errors.push('service is required');\nif (!message) errors.push('message is required');\nconst CONFIG = {\n  mockAI: true,\n  mockCRM: false,\n  mockEmail: false,\n  mockNotification: false,\n  fromEmail: 'Automation Demo <automation@example.com>',\n  salesEmail: 'sales@example.com',\n  calendlyUrl: 'https://calendly.com/your-team/demo',\n  twentyBaseUrl: 'http://twenty:3000',\n  currencyCode: 'USD',\n  processingLockMinutes: 5,\n  openAiModel: 'gpt-5-mini'\n};\nconst canonical = [email,source.toLowerCase(),service.toLowerCase(),String(budget),company.toLowerCase(),message.toLowerCase()].join('|');\nlet hash=2166136261;\nfor (let i=0;i<canonical.length;i++){ hash ^= canonical.charCodeAt(i); hash = Math.imul(hash,16777619); }\nconst supplied = clean(raw.request_id || headers['idempotency-key'] || headers['Idempotency-Key'],200).replace(/[^a-zA-Z0-9._:-]/g,'_');\nconst request_id = supplied || ('lead_' + (hash>>>0).toString(16).padStart(8,'0'));\nreturn [{json:{request_id, validation_ok: errors.length===0, validation_errors: errors,\n  received_at:new Date().toISOString(), name,email,phone,company,company_size,website,budget,service,message,source,\n  config:CONFIG}}];\n"
+        }
+      },
+      {
+        "id": "e34d9177-17d7-40e4-be93-470acd78ce4a",
+        "name": "Payload Valid?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          520,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "f9f9e26a-2a85-4343-bafe-6b1987e6ffad",
+                "leftValue": "={{ $json.validation_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "044aaed3-acab-4a56-a8c6-98e14357a80f",
+        "name": "Build Invalid Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          780,
+          220
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{http_code:400,body:{status:'invalid',request_id:$json.request_id,errors:$json.validation_errors}}}];"
+        }
+      },
+      {
+        "id": "c0e62562-b21c-4ebf-8d15-c9d8d3f1114a",
+        "name": "Respond Invalid",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1040,
+          220
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "5eb16e48-5250-4ae8-8a21-19a01bbf217c",
+        "name": "Lookup Request State",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          780,
+          -80
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_state",
+            "mode": "name"
+          },
+          "limit": 1,
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "request_id",
+                "condition": "eq",
+                "keyValue": "={{ $json.request_id }}"
+              }
+            ]
+          }
+        },
+        "alwaysOutputData": true
+      },
+      {
+        "id": "8e946c52-0fe1-4db6-bbb6-cdb6f3039f2a",
+        "name": "Decide Idempotency",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1040,
+          -80
+        ],
+        "parameters": {
+          "jsCode": "\nconst lead = $('Normalize + Config').first().json;\nconst row = $json && $json.request_id ? $json : null;\nlet can_process=true, duplicate_reason='', http_code=200;\nif (row) {\n  if (row.status === 'completed') { can_process=false; duplicate_reason='already_completed'; http_code=200; }\n  else if (row.status === 'processing') {\n    const ts = Date.parse(row.received_at || '');\n    const ageMin = Number.isFinite(ts) ? (Date.now()-ts)/60000 : Infinity;\n    if (ageMin < Number(lead.config.processingLockMinutes || 5)) { can_process=false; duplicate_reason='already_processing'; http_code=202; }\n  }\n}\nreturn [{json:{...lead,can_process,duplicate_reason,http_code,existing_state:row}}];\n"
+        }
+      },
+      {
+        "id": "9f391b17-abe4-4f6d-831b-278ed81bbe5d",
+        "name": "Can Process?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1300,
+          -80
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "9a31e03a-a725-411f-9bbc-ae3bd17545cd",
+                "leftValue": "={{ $json.can_process }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "b28b929c-fb81-42db-9a8c-fda7db423d5c",
+        "name": "Build Duplicate Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1560,
+          180
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{http_code:$json.http_code||200,body:{status:$json.duplicate_reason,request_id:$json.request_id,previous:$json.existing_state||null}}}];"
+        }
+      },
+      {
+        "id": "6fbe8400-b77b-4f14-9764-5c50add6f226",
+        "name": "Respond Duplicate",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1820,
+          180
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "3071a250-3cc0-4b60-833e-c27f8ca5e068",
+        "name": "Acquire Processing Lock",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1560,
+          -140
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "upsert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_state",
+            "mode": "name"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "request_id",
+                "condition": "eq",
+                "keyValue": "={{ $json.request_id }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "request_id": "={{ $json.request_id }}",
+              "status": "processing",
+              "received_at": "={{ $json.received_at }}",
+              "completed_at": "",
+              "email": "={{ $json.email }}",
+              "source": "={{ $json.source }}",
+              "score": "",
+              "category": "",
+              "contact_id": "",
+              "deal_id": "",
+              "email_status": "",
+              "error": ""
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "received_at",
+                "displayName": "received_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "completed_at",
+                "displayName": "completed_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "email",
+                "displayName": "email",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "source",
+                "displayName": "source",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "score",
+                "displayName": "score",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "category",
+                "displayName": "category",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "contact_id",
+                "displayName": "contact_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "deal_id",
+                "displayName": "deal_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "email_status",
+                "displayName": "email_status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "error",
+                "displayName": "error",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "3e30f230-c4f6-4b2e-a01e-290791718a74",
+        "name": "Audit Started",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1820,
+          -380
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_audit",
+            "mode": "name"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "timestamp": "={{ $now.toISO() }}",
+              "request_id": "={{ $(\"Decide Idempotency\").first().json.request_id }}",
+              "stage": "lead_received",
+              "status": "processing",
+              "detail": "Webhook accepted and idempotency lock acquired",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "timestamp",
+                "displayName": "timestamp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "stage",
+                "displayName": "stage",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "detail",
+                "displayName": "detail",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "aa90de31-0e70-476b-8ae7-5c1ff89d4b4f",
+        "name": "Use Mock AI?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1820,
+          -140
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "7fe85ac7-988c-4cac-951c-e5bcd79078b9",
+                "leftValue": "={{ $('Decide Idempotency').first().json.config.mockAI }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "550e34ce-7128-441d-9428-9975b3ac3952",
+        "name": "Mock AI Qualification",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          -280
+        ],
+        "parameters": {
+          "jsCode": "\nconst lead = $('Decide Idempotency').first().json;\nlet score=25;\nif (lead.budget>=10000) score+=35; else if (lead.budget>=5000) score+=25; else if (lead.budget>=2000) score+=15;\nif (lead.company_size>=50) score+=15; else if (lead.company_size>=10) score+=8;\nif (lead.email && !/(gmail|yahoo|outlook|hotmail|icloud)\\./i.test(lead.email)) score+=10;\nif (/automat|crm|workflow|integration|lead|sales/i.test(lead.message+' '+lead.service)) score+=15;\nscore=Math.min(100,score);\nconst category=score>=80?'HOT':score>=50?'WARM':'COLD';\nconst recommended_action=category==='HOT'?'schedule_demo':category==='WARM'?'request_more_info':'nurture';\nreturn [{json:{...lead,score,category,intent:lead.service,summary:`${lead.company||lead.name} requested ${lead.service}. Budget ${lead.budget || 'not specified'}, company size ${lead.company_size || 'not specified'}.`,recommended_action,reason:`Deterministic portfolio scoring produced ${score}/100 from budget, company size, email type and buying-intent keywords.`,ai_fallback:false,ai_provider:'mock'}}];\n"
+        }
+      },
+      {
+        "id": "3dba439a-27ca-4423-b66d-a5b72a5da2c6",
+        "name": "OpenAI Qualification",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          2080,
+          -40
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/responses",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { model: $json.config.openAiModel, input: [ { role: 'system', content: [ { type: 'input_text', text: 'You qualify B2B automation leads. Score 0-100. Be conservative and base the result only on supplied facts.' } ] }, { role: 'user', content: [ { type: 'input_text', text: JSON.stringify({name:$json.name,email:$json.email,company:$json.company,company_size:$json.company_size,budget:$json.budget,service:$json.service,message:$json.message,source:$json.source}) } ] } ], text: { format: { type: 'json_schema', name: 'lead_qualification', strict: true, schema: { type:'object', additionalProperties:false, properties:{ score:{type:'integer',minimum:0,maximum:100}, category:{type:'string',enum:['HOT','WARM','COLD']}, intent:{type:'string'}, summary:{type:'string'}, recommended_action:{type:'string',enum:['schedule_demo','request_more_info','nurture']}, reason:{type:'string'} }, required:['score','category','intent','summary','recommended_action','reason'] } } } } }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "OPENAI_CREDENTIAL_ID",
+            "name": "OpenAI | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "f6717d2d-42ba-49fc-b9ac-cc930f2daf48",
+        "name": "Parse AI or Fallback",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2340,
+          -40
+        ],
+        "parameters": {
+          "jsCode": "\nconst lead = $('Decide Idempotency').first().json;\nconst deterministic = () => {\n  let score=25;\n  if (lead.budget>=10000) score+=35; else if (lead.budget>=5000) score+=25; else if (lead.budget>=2000) score+=15;\n  if (lead.company_size>=50) score+=15; else if (lead.company_size>=10) score+=8;\n  if (lead.email && !/(gmail|yahoo|outlook|hotmail|icloud)\\./i.test(lead.email)) score+=10;\n  if (/automat|crm|workflow|integration|lead|sales/i.test(lead.message+' '+lead.service)) score+=15;\n  score=Math.min(100,score); const category=score>=80?'HOT':score>=50?'WARM':'COLD';\n  return {score,category,intent:lead.service,summary:`${lead.company||lead.name} requested ${lead.service}.`,recommended_action:category==='HOT'?'schedule_demo':category==='WARM'?'request_more_info':'nurture',reason:'Fallback deterministic scoring because AI response was unavailable or invalid.'};\n};\nlet parsed=null, ai_error='';\ntry {\n  if ($json.error) throw new Error(typeof $json.error==='string'?$json.error:JSON.stringify($json.error));\n  let text = typeof $json.output_text==='string' ? $json.output_text : '';\n  if (!text && Array.isArray($json.output)) {\n    for (const out of $json.output) if (Array.isArray(out.content)) for (const c of out.content) if (c.type==='output_text' && typeof c.text==='string') text += c.text;\n  }\n  if (!text) throw new Error('OpenAI response contained no output_text');\n  parsed=JSON.parse(text);\n  if (!Number.isInteger(parsed.score)||parsed.score<0||parsed.score>100||!['HOT','WARM','COLD'].includes(parsed.category)) throw new Error('Structured output failed validation');\n} catch(e) { ai_error=String(e.message||e); parsed=deterministic(); }\nreturn [{json:{...lead,...parsed,ai_fallback:Boolean(ai_error),ai_error,ai_provider:ai_error?'fallback':'openai'}}];\n"
+        }
+      },
+      {
+        "id": "f9092611-15f0-4ac8-8f0f-e64209969ebb",
+        "name": "Qualification Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2600,
+          -180
+        ],
+        "parameters": {
+          "jsCode": "return [{json:$json}];"
+        }
+      },
+      {
+        "id": "e8956e34-368e-4346-8316-5dd03d50e70b",
+        "name": "Audit Qualified",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          2860,
+          -420
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_audit",
+            "mode": "name"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "timestamp": "={{ $now.toISO() }}",
+              "request_id": "={{ $json.request_id }}",
+              "stage": "qualification",
+              "status": "={{ $json.category }}",
+              "detail": "={{ `score=${$json.score}; provider=${$json.ai_provider}; fallback=${$json.ai_fallback}` }}",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "timestamp",
+                "displayName": "timestamp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "stage",
+                "displayName": "stage",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "detail",
+                "displayName": "detail",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "1adc8adc-e21a-4c9a-b02a-892347ea374f",
+        "name": "Use Mock CRM?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2860,
+          -180
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "3f4ac877-d2e3-4edb-8c88-1df2c3218f7c",
+                "leftValue": "={{ $json.config.mockCRM }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "2aeebabb-ae8f-4a85-a469-5ff6deb97944",
+        "name": "Mock CRM Sync",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3120,
+          -300
+        ],
+        "parameters": {
+          "jsCode": "\nconst suffix=$json.request_id.replace(/[^a-zA-Z0-9]/g,'').slice(-12);\nreturn [{json:{...$json,contact_id:`mock-contact-${suffix}`,contact_action:'upserted',deal_id:$json.category==='HOT'?`mock-deal-${suffix}`:'',deal_action:$json.category==='HOT'?'created':'not_required',crm_provider:'mock'}}];\n"
+        }
+      },
+      {
+        "id": "a37463f2-2a88-407b-a6de-259095494981",
+        "name": "Twenty Search Person",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          3120,
+          -40
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.config.twentyBaseUrl + '/graphql' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { query: 'query FindPerson($email: String!) { people(filter: { emails: { primaryEmail: { eq: $email } } }, first: 1) { edges { node { id emails { primaryEmail } name { firstName lastName } } } } }', variables: { email: $json.email } } }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "254cb73b-c75f-4282-9f9b-a45265cfd57e",
+        "name": "Parse Contact Search",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3380,
+          -40
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Qualification Context').first().json;\nconst httpErr=$json.error ? (typeof $json.error==='string'?$json.error:JSON.stringify($json.error)) : '';\nconst gqlErr=Array.isArray($json.errors)&&$json.errors.length ? JSON.stringify($json.errors) : '';\nconst err=httpErr||gqlErr;\nif (err) return [{json:{...base,crm_search_ok:false,critical_error:'Twenty person search failed: '+err}}];\nconst hit=$json.data?.people?.edges?.[0]?.node || null;\nreturn [{json:{...base,crm_search_ok:true,contact_found:Boolean(hit),contact_id:hit?.id||'',contact_action:hit?'existing':'create',crm_provider:'twenty'}}];\n"
+        }
+      },
+      {
+        "id": "e98abaad-b369-4400-8cf4-4a6a048e4d56",
+        "name": "CRM Search OK?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          3640,
+          -40
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "cfb96bb8-b807-4cad-88da-b67fe5dfcd5e",
+                "leftValue": "={{ $json.crm_search_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "d6cf00a6-f04a-48dd-bccf-903fae9830e4",
+        "name": "Contact Exists?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          3900,
+          -160
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "0932aa4b-dbf3-4e2f-8d7f-da4b305f506e",
+                "leftValue": "={{ $json.contact_found }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "928e8b55-af7b-4133-9bbc-06965bd4bc56",
+        "name": "Twenty Update Person",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          4160,
+          -260
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ $json.config.twentyBaseUrl + '/rest/people/' + $json.contact_id }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ (() => {\n  const parts=String($json.name||'').trim().split(/\\s+/);\n  const firstName=parts.shift()||$json.name;\n  const lastName=parts.join(' ');\n  const x={\n    name:{firstName,lastName},\n    emails:{primaryEmail:$json.email,additionalEmails:[]},\n    leadScore:Number($json.score||0),\n    leadCategory:$json.category,\n    budget:Number($json.budget||0),\n    companySize:Number($json.company_size||0),\n    service:String($json.service||''),\n    source:String($json.source||''),\n    aiSummary:String($json.summary||''),\n    requestId:String($json.request_id||'')\n  };\n  if($json.phone){ x.phones={primaryPhoneNumber:$json.phone,primaryPhoneCountryCode:'',primaryPhoneCallingCode:'',additionalPhones:[]}; }\n  return x;\n})() }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "ea8875dc-1d70-4746-be4f-c4da1589ca2f",
+        "name": "Twenty Create Person",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          4160,
+          -60
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.config.twentyBaseUrl + '/rest/people' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ (() => {\n  const parts=String($json.name||'').trim().split(/\\s+/);\n  const firstName=parts.shift()||$json.name;\n  const lastName=parts.join(' ');\n  const x={\n    name:{firstName,lastName},\n    emails:{primaryEmail:$json.email,additionalEmails:[]},\n    leadScore:Number($json.score||0),\n    leadCategory:$json.category,\n    budget:Number($json.budget||0),\n    companySize:Number($json.company_size||0),\n    service:String($json.service||''),\n    source:String($json.source||''),\n    aiSummary:String($json.summary||''),\n    requestId:String($json.request_id||'')\n  };\n  if($json.phone){ x.phones={primaryPhoneNumber:$json.phone,primaryPhoneCountryCode:'',primaryPhoneCallingCode:'',additionalPhones:[]}; }\n  return x;\n})() }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "e8f3cfd3-e0b6-463b-ba69-52ec5faed215",
+        "name": "Normalize Updated Contact",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          4420,
+          -260
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Parse Contact Search').first().json;\nconst err=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nconst id=$json.id||$json.data?.id||$json.data?.updatePerson?.id||base.contact_id;\nconst deal_key='['+base.request_id+'] '+(base.company||base.name)+' — '+base.service;\nreturn [{json:err?{...base,contact_sync_ok:false,critical_error:'Twenty person update failed: '+err}:{...base,contact_sync_ok:true,contact_id:id,contact_action:'updated',deal_key,crm_provider:'twenty'}}];\n"
+        }
+      },
+      {
+        "id": "a41f7f83-463a-4d56-841b-4897e78bffb6",
+        "name": "Normalize Created Contact",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          4420,
+          -60
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Parse Contact Search').first().json;\nconst err=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nconst id=$json.id||$json.data?.id||$json.data?.person?.id||$json.data?.createPerson?.id||'';\nconst deal_key='['+base.request_id+'] '+(base.company||base.name)+' — '+base.service;\nconst raw=(()=>{try{return JSON.stringify($json).slice(0,1200)}catch{return '[unserializable response]'}})();\nreturn [{json:err||!id?{...base,contact_sync_ok:false,critical_error:'Twenty person create failed: '+(err||('missing person id; response='+raw))}:{...base,contact_sync_ok:true,contact_id:id,contact_action:'created',deal_key,crm_provider:'twenty'}}];\n"
+        }
+      },
+      {
+        "id": "62d9859b-b844-468e-b339-647a4a63000f",
+        "name": "Contact Sync OK?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          4680,
+          -160
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "cface236-6266-4181-9cb0-72d12d713e6c",
+                "leftValue": "={{ $json.contact_sync_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "cd61d77f-92cc-4a88-b907-589f9c7834b5",
+        "name": "HOT Lead (Twenty)?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          4940,
+          -160
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "f9dc7b8a-5d4b-4105-bd29-e4f7f12bad35",
+                "leftValue": "={{ $json.category }}",
+                "rightValue": "HOT",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "bcaff3c4-2899-4cd4-ae45-7ae7cfc7a7f9",
+        "name": "Twenty Search Opportunity",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          5200,
+          -280
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.config.twentyBaseUrl + '/graphql' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ { query: 'query FindOpportunity($name: String!) { opportunities(filter: { name: { eq: $name } }, first: 1) { edges { node { id name stage } } } }', variables: { name: $json.deal_key } } }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "9df27119-0783-4abd-a49e-e4a027830684",
+        "name": "Parse Deal Search",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          5460,
+          -280
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('HOT Lead (Twenty)?').first().json;\nconst httpErr=$json.error ? (typeof $json.error==='string'?$json.error:JSON.stringify($json.error)) : '';\nconst gqlErr=Array.isArray($json.errors)&&$json.errors.length ? JSON.stringify($json.errors) : '';\nconst err=httpErr||gqlErr;\nif(err)return [{json:{...base,deal_search_ok:false,critical_error:'Twenty opportunity search failed: '+err}}];\nconst hit=$json.data?.opportunities?.edges?.[0]?.node || null;\nreturn [{json:{...base,deal_search_ok:true,deal_found:Boolean(hit),deal_id:hit?.id||'',deal_action:hit?'existing':'create',crm_provider:'twenty'}}];\n"
+        }
+      },
+      {
+        "id": "ad1ee3dc-9f7e-4e60-b612-f6fdfe037cd3",
+        "name": "Deal Search OK?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          5720,
+          -280
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "bbcba1f7-561e-4b96-afa8-3febb90be223",
+                "leftValue": "={{ $json.deal_search_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "723d75f4-0942-4b55-b9d6-a9244a95f252",
+        "name": "Deal Exists?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          5980,
+          -360
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "e7080dab-efdb-4e83-b342-10e23336ccb7",
+                "leftValue": "={{ $json.deal_found }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "5f6093cb-59f1-48c8-b50e-64d1746a3946",
+        "name": "Reuse Existing Deal",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          6240,
+          -440
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{...$json,deal_sync_ok:true,deal_action:'existing',crm_provider:'twenty'}}];"
+        }
+      },
+      {
+        "id": "2b92ac42-25a6-4852-ac4d-75bb3ddbae88",
+        "name": "Twenty Create Opportunity",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.3,
+        "position": [
+          6240,
+          -260
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.config.twentyBaseUrl + '/rest/opportunities' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpBearerAuth",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ {\n  name:$json.deal_key,\n  amount:{amountMicros:Math.round(($json.budget||0)*1000000),currencyCode:$json.config.currencyCode},\n  pointOfContactId:$json.contact_id,\n  leadScore:Number($json.score||0),\n  leadCategory:$json.category,\n  service:String($json.service||''),\n  source:String($json.source||''),\n  aiSummary:String($json.summary||''),\n  requestId:String($json.request_id||'')\n} }}"
+        },
+        "retryOnFail": true,
+        "maxTries": 4,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "httpBearerAuth": {
+            "id": "TWENTY_CREDENTIAL_ID",
+            "name": "Twenty | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "196944f2-e502-4bd1-ac51-0198df19d6d4",
+        "name": "Normalize Created Deal",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          6500,
+          -260
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Parse Deal Search').first().json;\nconst err=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nconst id=$json.id||$json.data?.id||$json.data?.opportunity?.id||$json.data?.createOpportunity?.id||'';\nconst raw=(()=>{try{return JSON.stringify($json).slice(0,1200)}catch{return '[unserializable response]'}})();\nreturn [{json:err||!id?{...base,deal_sync_ok:false,critical_error:'Twenty opportunity create failed: '+(err||('missing opportunity id; response='+raw))}:{...base,deal_sync_ok:true,deal_id:id,deal_action:'created',crm_provider:'twenty'}}];\n"
+        }
+      },
+      {
+        "id": "1fb83c3a-ed73-47f9-bf27-0aa4a3f9eda9",
+        "name": "Deal Sync OK?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          6760,
+          -360
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "961a052a-0ee1-4d17-a2ff-9d9d2d949c3f",
+                "leftValue": "={{ $json.deal_sync_ok }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "ab266922-c35d-4a83-9f3c-c067cd9f249a",
+        "name": "Compose Follow-up",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          7020,
+          -80
+        ],
+        "parameters": {
+          "jsCode": "\nconst c=$json.category;\nlet subject,text;\nif(c==='HOT'){\n  subject=`Next step for ${$json.service}`;\n  text=`Hi ${$json.name},\\n\\nThanks for reaching out about ${$json.service}. Based on the scope you shared, the fastest next step is a short discovery call.\\n\\nBook a time here: ${$json.config.calendlyUrl}\\n\\nBest regards`;\n}else if(c==='WARM'){\n  subject=`A few details about ${$json.service}`;\n  text=`Hi ${$json.name},\\n\\nThanks for your request. We can help with ${$json.service}. Could you reply with your current tools, expected volume, and desired launch date?\\n\\nBest regards`;\n}else{\n  subject=`Thanks for contacting us about ${$json.service}`;\n  text=`Hi ${$json.name},\\n\\nThanks for getting in touch. We received your request about ${$json.service} and will keep the information on file.\\n\\nBest regards`;\n}\nconst esc=s=>String(s).replace(/[&<>\\\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]));\nconst html=text.split('\\n').map(x=>x?`<p>${esc(x)}</p>`:'').join('');\nreturn [{json:{...$json,email_subject:subject,email_text:text,email_html:html}}];\n"
+        }
+      },
+      {
+        "id": "346a8bdf-154e-48fa-941d-8fcd7bfb38a1",
+        "name": "Use Mock Email?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          7280,
+          -80
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "4101a551-ec90-49b9-893d-d7805edfdf1b",
+                "leftValue": "={{ $json.config.mockEmail }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "41046246-a20e-4ea9-a44a-b5e6d73a6e89",
+        "name": "Mock Client Email",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          7540,
+          -180
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{...$json,email_status:'mock_sent',email_error:''}}];"
+        }
+      },
+      {
+        "id": "484cdca1-af46-4e1a-b278-47116a4ae876",
+        "name": "SMTP Client Email",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          7540,
+          20
+        ],
+        "parameters": {
+          "fromEmail": "={{ $json.config.fromEmail }}",
+          "toEmail": "={{ $json.email }}",
+          "subject": "={{ $json.email_subject }}",
+          "emailFormat": "both",
+          "text": "={{ $json.email_text }}",
+          "html": "={{ $json.email_html }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "smtp": {
+            "id": "MAILPIT_CREDENTIAL_ID",
+            "name": "Mailpit | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "4c24e657-e57f-4942-b493-32f08363bd59",
+        "name": "Normalize Client Delivery",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          7800,
+          -80
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Compose Follow-up').first().json;\nif($json.email_status)return [{json:$json}];\nconst err=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nreturn [{json:{...base,email_status:err?'failed':'sent',email_error:err}}];\n"
+        }
+      },
+      {
+        "id": "3ffdaefc-832a-40d1-99f4-63c32540b444",
+        "name": "HOT Notification?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          8060,
+          -80
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "1642148f-7e54-44ff-9acd-dd3e37a43cc8",
+                "leftValue": "={{ $json.category }}",
+                "rightValue": "HOT",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "c82faf14-9ca4-487d-9574-de9c2c885b17",
+        "name": "Use Mock Notification?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          8320,
+          -200
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 3
+            },
+            "conditions": [
+              {
+                "id": "f4bb3438-436f-44ec-9427-892f8985c0e2",
+                "leftValue": "={{ $json.config.mockNotification }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "96e32338-1d4c-4a49-b39e-29e0b844e981",
+        "name": "Mock Sales Notification",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          8580,
+          -300
+        ],
+        "parameters": {
+          "jsCode": "return [{json:{...$json,notification_status:'mock_sent',notification_error:''}}];"
+        }
+      },
+      {
+        "id": "8e567f4c-2c10-454b-844c-80a15f487b10",
+        "name": "SMTP Sales Notification",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2.1,
+        "position": [
+          8580,
+          -100
+        ],
+        "parameters": {
+          "fromEmail": "={{ $json.config.fromEmail }}",
+          "toEmail": "={{ $json.config.salesEmail }}",
+          "subject": "={{ `🔥 HOT lead ${$json.name} — ${$json.score}/100` }}",
+          "emailFormat": "both",
+          "text": "={{ `HOT LEAD\\n\\n${$json.name} (${ $json.email })\\nCompany: ${$json.company || '-'}\\nBudget: ${$json.budget}\\nService: ${$json.service}\\nScore: ${$json.score}/100\\n\\n${$json.summary}\\n\\nRecommended: ${$json.recommended_action}\\nContact ID: ${$json.contact_id || '-'}\\nDeal ID: ${$json.deal_id || '-'}` }}",
+          "html": "={{ `<h2>🔥 HOT lead</h2><p><b>${$json.name}</b> — ${$json.score}/100</p><p>${$json.summary}</p><p>Contact: ${$json.contact_id || '-'}<br>Deal: ${$json.deal_id || '-'}</p>` }}",
+          "options": {
+            "appendAttribution": false
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "smtp": {
+            "id": "MAILPIT_CREDENTIAL_ID",
+            "name": "Mailpit | n8n Lead Automation"
+          }
+        }
+      },
+      {
+        "id": "209e0b7f-d8b5-435f-b4f3-71dab9d3c96d",
+        "name": "Normalize Sales Notification",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          8840,
+          -200
+        ],
+        "parameters": {
+          "jsCode": "\nconst base=$('Normalize Client Delivery').first().json;\nif($json.notification_status)return [{json:$json}];\nconst err=$json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'';\nreturn [{json:{...base,notification_status:err?'failed':'sent',notification_error:err}}];\n"
+        }
+      },
+      {
+        "id": "737b9d0c-7497-4d64-bf43-de29eb915e32",
+        "name": "Finalize Success",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          9100,
+          -20
+        ],
+        "parameters": {
+          "jsCode": "\nreturn [{json:{...$json,status:'completed',completed_at:new Date().toISOString(),error:'',notification_status:$json.notification_status||'not_required'}}];\n"
+        }
+      },
+      {
+        "id": "9956c3e7-0269-4c6e-a6be-1752938763c0",
+        "name": "Persist Completed",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          9360,
+          -20
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "upsert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_state",
+            "mode": "name"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "request_id",
+                "condition": "eq",
+                "keyValue": "={{ $(\"Finalize Success\").first().json.request_id }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "request_id": "={{ $(\"Finalize Success\").first().json.request_id }}",
+              "status": "completed",
+              "received_at": "={{ $(\"Finalize Success\").first().json.received_at }}",
+              "completed_at": "={{ $(\"Finalize Success\").first().json.completed_at }}",
+              "email": "={{ $(\"Finalize Success\").first().json.email }}",
+              "source": "={{ $(\"Finalize Success\").first().json.source }}",
+              "score": "={{ String($(\"Finalize Success\").first().json.score) }}",
+              "category": "={{ $(\"Finalize Success\").first().json.category }}",
+              "contact_id": "={{ $(\"Finalize Success\").first().json.contact_id || \"\" }}",
+              "deal_id": "={{ $(\"Finalize Success\").first().json.deal_id || \"\" }}",
+              "email_status": "={{ $(\"Finalize Success\").first().json.email_status || \"\" }}",
+              "error": "={{ $(\"Finalize Success\").first().json.email_error || \"\" }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "received_at",
+                "displayName": "received_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "completed_at",
+                "displayName": "completed_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "email",
+                "displayName": "email",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "source",
+                "displayName": "source",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "score",
+                "displayName": "score",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "category",
+                "displayName": "category",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "contact_id",
+                "displayName": "contact_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "deal_id",
+                "displayName": "deal_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "email_status",
+                "displayName": "email_status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "error",
+                "displayName": "error",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "97b27a72-d0c0-4368-ba11-066f054933e0",
+        "name": "Audit Completed",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          9360,
+          -260
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_audit",
+            "mode": "name"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "timestamp": "={{ $(\"Finalize Success\").first().json.completed_at }}",
+              "request_id": "={{ $(\"Finalize Success\").first().json.request_id }}",
+              "stage": "workflow_complete",
+              "status": "completed",
+              "detail": "={{ `category=${$(\"Finalize Success\").first().json.category}; score=${$(\"Finalize Success\").first().json.score}; email=${$(\"Finalize Success\").first().json.email_status}; notification=${$(\"Finalize Success\").first().json.notification_status}` }}",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "timestamp",
+                "displayName": "timestamp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "stage",
+                "displayName": "stage",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "detail",
+                "displayName": "detail",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "fea1ef65-9895-4bf1-bf17-b8f5b55259cd",
+        "name": "Build Success Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          9620,
+          -20
+        ],
+        "parameters": {
+          "jsCode": "\nconst x=$('Finalize Success').first().json;\nreturn [{json:{http_code:200,body:{status:'processed',request_id:x.request_id,category:x.category,score:x.score,contact_id:x.contact_id||null,deal_id:x.deal_id||null,email_status:x.email_status,notification_status:x.notification_status,ai_provider:x.ai_provider,ai_fallback:Boolean(x.ai_fallback)}}}];\n"
+        }
+      },
+      {
+        "id": "4a600583-649b-4cc7-a6c2-c23a5d6c0af6",
+        "name": "Respond Success",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          9880,
+          -20
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      },
+      {
+        "id": "e189a20c-03f0-47db-9c7c-0a41be1f1b5f",
+        "name": "Build Critical Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          7020,
+          420
+        ],
+        "parameters": {
+          "jsCode": "\nconst lead=$('Decide Idempotency').first().json;\nconst detail=$json.critical_error || ($json.error?(typeof $json.error==='string'?$json.error:JSON.stringify($json.error)):'Unknown critical integration error');\nreturn [{json:{...lead,status:'failed',failed_at:new Date().toISOString(),critical_error:detail}}];\n"
+        }
+      },
+      {
+        "id": "549aedce-0799-4edd-a221-55bd8b131382",
+        "name": "Persist Failed",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          7280,
+          420
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "upsert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_state",
+            "mode": "name"
+          },
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "request_id",
+                "condition": "eq",
+                "keyValue": "={{ $json.request_id }}"
+              }
+            ]
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "request_id": "={{ $json.request_id }}",
+              "status": "failed",
+              "received_at": "={{ $json.received_at }}",
+              "completed_at": "",
+              "email": "={{ $json.email }}",
+              "source": "={{ $json.source }}",
+              "score": "={{ String($json.score || \"\") }}",
+              "category": "={{ $json.category || \"\" }}",
+              "contact_id": "={{ $json.contact_id || \"\" }}",
+              "deal_id": "={{ $json.deal_id || \"\" }}",
+              "email_status": "={{ $json.email_status || \"\" }}",
+              "error": "={{ $json.critical_error }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "received_at",
+                "displayName": "received_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "completed_at",
+                "displayName": "completed_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "email",
+                "displayName": "email",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "source",
+                "displayName": "source",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "score",
+                "displayName": "score",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "category",
+                "displayName": "category",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "contact_id",
+                "displayName": "contact_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "deal_id",
+                "displayName": "deal_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "email_status",
+                "displayName": "email_status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "error",
+                "displayName": "error",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "e3c58775-accc-4e94-a5f0-d5b9dc79f7aa",
+        "name": "Audit Failed",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          7280,
+          620
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "value": "lead_automation_audit",
+            "mode": "name"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "timestamp": "={{ $now.toISO() }}",
+              "request_id": "={{ $(\"Build Critical Failure\").first().json.request_id }}",
+              "stage": "critical_failure",
+              "status": "failed",
+              "detail": "={{ $(\"Build Critical Failure\").first().json.critical_error }}",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "timestamp",
+                "displayName": "timestamp",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "request_id",
+                "displayName": "request_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "stage",
+                "displayName": "stage",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "detail",
+                "displayName": "detail",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "9ecd8674-b49a-4f45-bd32-7439421ece08",
+        "name": "Build Failure Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          7540,
+          420
+        ],
+        "parameters": {
+          "jsCode": "\nconst x=$('Build Critical Failure').first().json;\nreturn [{json:{http_code:502,body:{status:'failed',request_id:x.request_id,error:x.critical_error}}}];\n"
+        }
+      },
+      {
+        "id": "65cfe5fd-cb69-4570-9c1f-5ee2344e21f5",
+        "name": "Respond Failure",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          7800,
+          420
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_code }}"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Lead Webhook": {
+        "main": [
+          [
+            {
+              "node": "Normalize + Config",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize + Config": {
+        "main": [
+          [
+            {
+              "node": "Payload Valid?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Payload Valid?": {
+        "main": [
+          [
+            {
+              "node": "Lookup Request State",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Invalid Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Invalid Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Invalid",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Lookup Request State": {
+        "main": [
+          [
+            {
+              "node": "Decide Idempotency",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decide Idempotency": {
+        "main": [
+          [
+            {
+              "node": "Can Process?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Can Process?": {
+        "main": [
+          [
+            {
+              "node": "Acquire Processing Lock",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Duplicate Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Duplicate Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Duplicate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Acquire Processing Lock": {
+        "main": [
+          [
+            {
+              "node": "Audit Started",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Use Mock AI?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Use Mock AI?": {
+        "main": [
+          [
+            {
+              "node": "Mock AI Qualification",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "OpenAI Qualification",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OpenAI Qualification": {
+        "main": [
+          [
+            {
+              "node": "Parse AI or Fallback",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mock AI Qualification": {
+        "main": [
+          [
+            {
+              "node": "Qualification Context",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse AI or Fallback": {
+        "main": [
+          [
+            {
+              "node": "Qualification Context",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Qualification Context": {
+        "main": [
+          [
+            {
+              "node": "Audit Qualified",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Use Mock CRM?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Use Mock CRM?": {
+        "main": [
+          [
+            {
+              "node": "Mock CRM Sync",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Twenty Search Person",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mock CRM Sync": {
+        "main": [
+          [
+            {
+              "node": "Compose Follow-up",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Contact Search": {
+        "main": [
+          [
+            {
+              "node": "CRM Search OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CRM Search OK?": {
+        "main": [
+          [
+            {
+              "node": "Contact Exists?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Critical Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Contact Exists?": {
+        "main": [
+          [
+            {
+              "node": "Twenty Update Person",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Twenty Create Person",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Updated Contact": {
+        "main": [
+          [
+            {
+              "node": "Contact Sync OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Created Contact": {
+        "main": [
+          [
+            {
+              "node": "Contact Sync OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Contact Sync OK?": {
+        "main": [
+          [
+            {
+              "node": "HOT Lead (Twenty)?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Critical Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Deal Search": {
+        "main": [
+          [
+            {
+              "node": "Deal Search OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Deal Search OK?": {
+        "main": [
+          [
+            {
+              "node": "Deal Exists?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Critical Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Deal Exists?": {
+        "main": [
+          [
+            {
+              "node": "Reuse Existing Deal",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Twenty Create Opportunity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Reuse Existing Deal": {
+        "main": [
+          [
+            {
+              "node": "Deal Sync OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Created Deal": {
+        "main": [
+          [
+            {
+              "node": "Deal Sync OK?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Deal Sync OK?": {
+        "main": [
+          [
+            {
+              "node": "Compose Follow-up",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build Critical Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Compose Follow-up": {
+        "main": [
+          [
+            {
+              "node": "Use Mock Email?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Use Mock Email?": {
+        "main": [
+          [
+            {
+              "node": "Mock Client Email",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "SMTP Client Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mock Client Email": {
+        "main": [
+          [
+            {
+              "node": "Normalize Client Delivery",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SMTP Client Email": {
+        "main": [
+          [
+            {
+              "node": "Normalize Client Delivery",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Client Delivery": {
+        "main": [
+          [
+            {
+              "node": "HOT Notification?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HOT Notification?": {
+        "main": [
+          [
+            {
+              "node": "Use Mock Notification?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Finalize Success",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Use Mock Notification?": {
+        "main": [
+          [
+            {
+              "node": "Mock Sales Notification",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "SMTP Sales Notification",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mock Sales Notification": {
+        "main": [
+          [
+            {
+              "node": "Normalize Sales Notification",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SMTP Sales Notification": {
+        "main": [
+          [
+            {
+              "node": "Normalize Sales Notification",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Sales Notification": {
+        "main": [
+          [
+            {
+              "node": "Finalize Success",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Finalize Success": {
+        "main": [
+          [
+            {
+              "node": "Persist Completed",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Audit Completed",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Persist Completed": {
+        "main": [
+          [
+            {
+              "node": "Build Success Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Success Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Success",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Critical Failure": {
+        "main": [
+          [
+            {
+              "node": "Persist Failed",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Audit Failed",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Persist Failed": {
+        "main": [
+          [
+            {
+              "node": "Build Failure Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Failure Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Search Person": {
+        "main": [
+          [
+            {
+              "node": "Parse Contact Search",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Update Person": {
+        "main": [
+          [
+            {
+              "node": "Normalize Updated Contact",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Create Person": {
+        "main": [
+          [
+            {
+              "node": "Normalize Created Contact",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Search Opportunity": {
+        "main": [
+          [
+            {
+              "node": "Parse Deal Search",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Twenty Create Opportunity": {
+        "main": [
+          [
+            {
+              "node": "Normalize Created Deal",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HOT Lead (Twenty)?": {
+        "main": [
+          [
+            {
+              "node": "Twenty Search Opportunity",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Compose Follow-up",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "settings": {
+      "executionOrder": "v1",
+      "saveManualExecutions": true,
+      "saveExecutionProgress": true,
+      "saveDataErrorExecution": "all",
+      "saveDataSuccessExecution": "all"
+    },
+    "active": false,
+    "meta": {
+      "templateCredsSetupCompleted": false
+    }
+  }
+]
